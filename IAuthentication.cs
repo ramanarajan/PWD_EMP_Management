@@ -3,7 +3,7 @@ namespace TruLiveEncoder.WD
 {
     
 
-    interface IAuthentication
+    public interface IAuthentication
     {
         /// <summary>
         /// Event of server response
@@ -25,11 +25,6 @@ namespace TruLiveEncoder.WD
         /// <param name="_opType"></param>
         /// <param name="_data"></param>
         object Manipulation(int _task, int _opType, object _data);
-        
-        /// <summary>
-        /// Session timeout
-        /// </summary>
-        int SessionTimeOut { get; set; }
         
         /// <summary>
         /// User Details

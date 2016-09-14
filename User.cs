@@ -18,7 +18,7 @@ namespace TruLiveEncoder.WD
         public User(string  _userName,List<Policy> _ltply):this()
         {
             Name = _userName;
-            Policy = new ReadOnlyCollection<Policy>(_ltply);
+            Policy = new ReadOnlyCollection<Policy>(_ltply??new List<Policy>());
             
         }
         /// <summary>

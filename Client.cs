@@ -1,16 +1,15 @@
 ﻿
 using System;
-using System.Threading;
+using System.IO;
+
 namespace TruLiveEncoder.WD
 {
     /// <summary>
     /// Client for WD
     /// </summary>
-    public class Client : IDisposable
+    public class Client : EntityManager,IDisposable
     {
         IAuthentication _iath = null;
-        Thread _thconnection = null;
-        pwd_empmgmEntities1 pwd = null;
         #region IDisposable Implementation
         bool _isdispose = false;
         protected virtual void Dispose(bool _isdispose)
@@ -18,18 +17,7 @@ namespace TruLiveEncoder.WD
             if (!this._isdispose && _isdispose)
             {
                 this._isdispose = true;
-                if (_onAuthentication != null)
-                    foreach (Delegate d in _onAuthentication.GetInvocationList())
-                        OnAuthentication -= (ResponseEventHandle)d;
-
-                if (_thconnection != null)
-                {
-                    while (_thconnection.IsAlive)
-                    {
-                        _thconnection.Abort();
-                        Thread.Sleep(100);
-                    }
-                }
+                ResetEvent();
                 Disconnect();
             }
         }
@@ -48,7 +36,7 @@ namespace TruLiveEncoder.WD
         /// </summary>
         public Client()
         {
-            pwd = new pwd_empmgmEntities1();
+            
         }
 
         /// <summary>
@@ -56,43 +44,22 @@ namespace TruLiveEncoder.WD
         /// </summary>
         /// <param name="_userName"></param>
         /// <param name="password"></param>
-        public void Connect(string _userName, string password)
+        public void ConnectAsync(string _userName, string password)
         {
-           
-            try
-            {
-                var v = pwd.pwd_employee.SqlQuery("select * from pwd_employee where username=@uname", _userName);
-                if (v == null)
-                    throw new Exception("Invalid username or password!!!");
-                var res=v.GetEnumerator();
-                if(!res.MoveNext())
-                    throw new Exception("Invalid username or password!!!");
-                if(res.Current.id>3 && res.Current.division>0)
-                    throw new Exception(string.Format("Retry to login after {0}" ,res.Current.division));
-               
-              
-                /// Attempt count reset
-                if (string.Compare(res.Current.name, "", true) == 0)
-                {
-                    /// Attempt count reset
-                    //res.Current.id == 0;
-                    OnAuthenticationEventRaised(new ResponseEventArgs(new Authentication(new User(res.Current.name, null))));
-                }
-                else
-                {
-                    //Increase Attempt count
-                    //res.Current.id += 1;
-                    throw new Exception("Invalid username or password!!!");
-                }
-                pwd.SaveChanges();
-
-            }
-            catch (Exception ex)
-            {
-                OnAuthenticationEventRaised(new ResponseEventArgs(ex));
-            }
-            
+            this.DBManipulationAsync(1, 1, new object[] { _userName, password });
         }
+
+         /// <summary>
+        /// Connect to application
+        /// </summary>
+        /// <param name="_userName"></param>
+        /// <param name="password"></param>
+        public IAuthentication Connect(string _userName, string password)
+        {
+            return this.DBManipulation(1, 1, new object[] { _userName, password }) as IAuthentication;
+        }
+
+        
 
         /*   using (var dbContextTransaction = context.Database.BeginTransaction())
                   {
@@ -245,17 +212,6 @@ namespace TruLiveEncoder.WD
             _iath = null;
         }
 
-
-        /// <summary>
-        /// Event lock object 
-        /// </summary>
-        object _authenticationEventlock = new object();
-        /// <summary>
-        /// Event of server response
-        /// </summary>
-        event ResponseEventHandle _onAuthentication;
-
-
         /// <summary>
         /// Event of server response
         /// </summary>
@@ -263,34 +219,80 @@ namespace TruLiveEncoder.WD
         {
             add
             {
-                lock (_authenticationEventlock)
+                lock (_ResponseEventlock)
                 {
-                    _onAuthentication += value;
+                    _onResponse += value;
                 }
             }
             remove
             {
-                lock (_authenticationEventlock)
+                lock (_ResponseEventlock)
                 {
-                    _onAuthentication -= value;
+                    _onResponse -= value;
                 }
             }
         }
 
         /// <summary>
-        /// Raised buffer progress event
+        /// Backup DB to file
         /// </summary>
-        /// <param name="value"></param>
-        /// <param name="_isInternet"></param>
-        public void OnAuthenticationEventRaised(ResponseEventArgs e)
+        private void Backup()
         {
-            ResponseEventHandle handler;
-            lock (_authenticationEventlock)
-            {
-                handler = _onAuthentication;
-            }
-            if (handler != null)
-                handler(this, e);
+            string constring = "server=localhost;user=root;pwd=qwerty;database=test;";
+            string file = "C:\\backup.sql";
+            //using (MySqlConnection conn = new MySqlConnection(constring))
+            //{
+            //    using (MySqlCommand cmd = new MySqlCommand())
+            //    {
+            //        using (MySqlBackup mb = new MySqlBackup(cmd))
+            //        {
+            //            cmd.Connection = conn;
+            //            conn.Open();
+            //            mb.ExportToFile(file);
+            //            conn.Close();
+            //        }
+            //    }
+            //}
         }
+
+        private void DeleteBackup()
+        {
+            string file = "C:\\backup.sql";
+            string file1 = "C:\\backup.bck.sql";
+            string file2 = "C:\\backup1.sql";
+            if (File.Exists(file2))
+            {
+                if (File.Exists(file1))
+                    File.Delete(file1);
+            }
+            else
+            {
+               if (File.Exists(file1))
+                   System.IO.File.Move(file1, file2);
+            }
+            System.IO.File.Move(file,file1);
+            File.Delete(file2);
+        }
+
+        private void Restore()
+        {
+            string constring = "server=localhost;user=root;pwd=qwerty;database=test;";
+            string file = "C:\\backup.sql";
+            //using (MySqlConnection conn = new MySqlConnection(constring))
+            //{
+            //    using (MySqlCommand cmd = new MySqlCommand())
+            //    {
+            //        using (MySqlBackup mb = new MySqlBackup(cmd))
+            //        {
+            //            cmd.Connection = conn;
+            //            conn.Open();
+            //            mb.ImportFromFile(file);
+            //            conn.Close();
+            //        }
+            //    }
+            //}
+        }
+
+
     }
 }
