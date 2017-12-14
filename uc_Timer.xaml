@@ -1,0 +1,42 @@
+﻿<UserControl x:Class="VollomeStudio.Helpers.uc_Timer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="uc_timer" FontFamily="{DynamicResource ApplicationFontFamily2}">
+    <Border CornerRadius="10,10,10,10" HorizontalAlignment="Center" VerticalAlignment="Center" Background="{DynamicResource InputBackground}" DataContext="{Binding RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type UserControl}}}">
+        <Grid Margin="2,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox MouseWheel="_MouseWheel"  Tag="hour" MaxLength="2" Focusable="True" BorderThickness="0" FontSize="{Binding ElementName=uc_timer, Path=FontSize, Mode=OneWay}" FontFamily="{Binding ElementName=uc_timer, Path=FontFamily, Mode=OneWay}" FontWeight="{Binding ElementName=uc_timer, Path=FontWeight, Mode=OneWay}" FontStretch="{Binding ElementName=uc_timer, Path=FontStretch, Mode=OneWay}" FontStyle="{Binding ElementName=uc_timer, Path=FontStyle, Mode=OneWay}" Foreground="{Binding ElementName=uc_timer, Path=Foreground, Mode=OneWay}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Padding="7,1" Background="Transparent" Text="{Binding Hours, StringFormat={}{0:00}}" TabIndex="2">
+                <TextBox.InputBindings>
+                    <KeyBinding Command="{Binding IncreaseCommand}" CommandParameter="hour" Key="Up" />
+                    <KeyBinding Command="{Binding DecreaseCommand}" CommandParameter="hour" Key="Down" />
+                </TextBox.InputBindings>
+            </TextBox>
+            <StackPanel Grid.Column="1" Margin="3,0">
+                <Button Content="&#xf106;" FontFamily="{DynamicResource ApplicationFontFamily}" Command="{Binding IncreaseCommand}" Focusable="False" CommandParameter="min" FontSize="{Binding ElementName=uc_timer, Path=FontSize, Mode=OneWay}" FontWeight="{Binding ElementName=uc_timer, Path=FontWeight, Mode=OneWay}" FontStretch="{Binding ElementName=uc_timer, Path=FontStretch, Mode=OneWay}" FontStyle="{Binding ElementName=uc_timer, Path=FontStyle, Mode=OneWay}" Foreground="{Binding ElementName=uc_timer, Path=Foreground, Mode=OneWay}" Margin="0,0,0,-5"/>
+                <Button Content="&#xf107;" FontFamily="{DynamicResource ApplicationFontFamily}" Command="{Binding DecreaseCommand}" Focusable="False" CommandParameter="min" FontSize="{Binding ElementName=uc_timer, Path=FontSize, Mode=OneWay}" FontWeight="{Binding ElementName=uc_timer, Path=FontWeight, Mode=OneWay}" FontStretch="{Binding ElementName=uc_timer, Path=FontStretch, Mode=OneWay}" FontStyle="{Binding ElementName=uc_timer, Path=FontStyle, Mode=OneWay}" Foreground="{Binding ElementName=uc_timer, Path=Foreground, Mode=OneWay}" Margin="0,-5,0,0"/>
+            </StackPanel>
+            <TextBox MouseWheel="_MouseWheel"  Tag="min" Grid.Column="2" Focusable="True"  MaxLength="2" BorderThickness="0" FontSize="{Binding ElementName=uc_timer, Path=FontSize, Mode=OneWay}" FontFamily="{Binding ElementName=uc_timer, Path=FontFamily, Mode=OneWay}" FontWeight="{Binding ElementName=uc_timer, Path=FontWeight, Mode=OneWay}" FontStretch="{Binding ElementName=uc_timer, Path=FontStretch, Mode=OneWay}" FontStyle="{Binding ElementName=uc_timer, Path=FontStyle, Mode=OneWay}" Foreground="{Binding ElementName=uc_timer, Path=Foreground, Mode=OneWay}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Padding="7,1" Background="Transparent" Text="{Binding Minutes, StringFormat={}{0:00}}" TabIndex="1">
+                <TextBox.InputBindings>
+                    <KeyBinding Command="{Binding IncreaseCommand}" CommandParameter="min" Key="Up" />
+                    <KeyBinding Command="{Binding DecreaseCommand}" CommandParameter="min" Key="Down" />
+                </TextBox.InputBindings>
+            </TextBox>
+            <StackPanel Grid.Column="3" Margin="3,0" >
+                <Button Content="&#xf106;" FontFamily="{DynamicResource ApplicationFontFamily}" Command="{Binding IncreaseCommand}" Focusable="False" CommandParameter="sec" FontSize="{Binding ElementName=uc_timer, Path=FontSize, Mode=OneWay}" FontWeight="{Binding ElementName=uc_timer, Path=FontWeight, Mode=OneWay}" FontStretch="{Binding ElementName=uc_timer, Path=FontStretch, Mode=OneWay}" FontStyle="{Binding ElementName=uc_timer, Path=FontStyle, Mode=OneWay}" Foreground="{Binding ElementName=uc_timer, Path=Foreground, Mode=OneWay}" Margin="0,0,0,-5"/>
+                <Button Content="&#xf107;" FontFamily="{DynamicResource ApplicationFontFamily}" Command="{Binding DecreaseCommand}" Focusable="False" CommandParameter="sec" FontSize="{Binding ElementName=uc_timer, Path=FontSize, Mode=OneWay}" FontWeight="{Binding ElementName=uc_timer, Path=FontWeight, Mode=OneWay}" FontStretch="{Binding ElementName=uc_timer, Path=FontStretch, Mode=OneWay}" FontStyle="{Binding ElementName=uc_timer, Path=FontStyle, Mode=OneWay}" Foreground="{Binding ElementName=uc_timer, Path=Foreground, Mode=OneWay}" Margin="0,-5,0,0"/>
+            </StackPanel>
+            <TextBox MouseWheel="_MouseWheel"  Tag="sec" Grid.Column="4" Focusable="True" MaxLength="2" BorderThickness="0" FontSize="{Binding ElementName=uc_timer, Path=FontSize, Mode=OneWay}" FontFamily="{Binding ElementName=uc_timer, Path=FontFamily, Mode=OneWay}" FontWeight="{Binding ElementName=uc_timer, Path=FontWeight, Mode=OneWay}" FontStretch="{Binding ElementName=uc_timer, Path=FontStretch, Mode=OneWay}" FontStyle="{Binding ElementName=uc_timer, Path=FontStyle, Mode=OneWay}" Foreground="{Binding ElementName=uc_timer, Path=Foreground, Mode=OneWay}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Padding="7,1" Background="Transparent" Text="{Binding Seconds, StringFormat={}{0:00}}" TabIndex="0">
+                <TextBox.InputBindings>
+                    <KeyBinding Command="{Binding IncreaseCommand}" CommandParameter="sec" Key="Up" />
+                    <KeyBinding Command="{Binding DecreaseCommand}" CommandParameter="sec" Key="Down" />
+                </TextBox.InputBindings>
+            </TextBox>
+        </Grid>
+    </Border>
+</UserControl>
