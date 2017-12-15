@@ -1,0 +1,2443 @@
+
+    internal class DataManager<T> : ReadDataCollection<T>, IDataCollectionManager<T> where T : class, new()
+    {
+        /// <summary>
+        /// NewModel
+        /// </summary>
+        object IDataCollection.NewModel { get => this.NewModel; }
+
+        /// <summary>
+        /// OldModel
+        /// </summary>
+        object IDataCollection.OldModel => this.OldModel;
+
+        bool _removeRootNote = false;
+        T _newModel;
+        /// <summary>
+        /// New Model
+        /// </summary>
+        public T NewModel
+        {
+            set
+            {
+                OldModel = NewInstance();
+                _newModel = NewInstance();
+                if (_newModel != value)
+                {
+                    IsEditable = false;
+                    if (value != null)
+                    {
+                        IsEditable = true;
+                        OldModel = value;
+                        try
+                        {
+                            CopyPropertiesTo(value, _newModel);
+                        }
+                        catch { }
+                    }
+
+                }
+                else
+                {
+                    IsEditable = false;
+                }
+                OnPropertyChanged("NewModel");
+                OnPropertyChanged("IsEditable");
+            }
+            get { return _newModel; }
+        }
+
+        /// <summary>
+        /// Old Model
+        /// </summary>
+        public T OldModel { private set; get; }
+
+        /// <summary>
+        /// Update Selected Model
+        /// </summary>
+        public bool IsUpdated
+        {
+            get
+            {
+                return !_newModel.Equals(OldModel);
+            }
+        }
+
+        /// <summary>
+        /// Selected Model Editable or not 
+        /// </summary>
+        public bool IsEditable
+        {
+            private set;
+            get;
+        }
+
+        public DataManager(IRESTAPIClientHandler _context, string _serviceController) : base(_context, _serviceController)
+        {
+
+        }
+
+        /// <summary>
+        /// Copy Model one to another
+        /// </summary>
+        /// <typeparam name="S"></typeparam>
+        /// <typeparam name="TU"></typeparam>
+        /// <param name="source"></param>
+        /// <param name="dest"></param>
+        void CopyPropertiesTo<S, TU>(S source, TU dest)
+        {
+            var sourceProps = typeof(T).GetProperties().Where(x => x.CanRead).ToList();
+            var destProps = typeof(TU).GetProperties()
+                    .Where(x => x.CanWrite)
+                    .ToList();
+
+            foreach (var sourceProp in sourceProps)
+            {
+                if (destProps.Any(x => x.Name == sourceProp.Name))
+                {
+                    var p = destProps.First(x => x.Name == sourceProp.Name);
+                    p.SetValue(dest, sourceProp.GetValue(source, null), null);
+                }
+
+            }
+        }
+
+        /// <summary>
+        /// Create new Model Instance
+        /// </summary>
+        /// <returns></returns>
+        public T NewInstance()
+        {
+            return new T();
+        }
+
+        /// <summary>
+        /// Create new Model
+        /// </summary>
+        /// <returns></returns>
+        public async Task<T> CreateNew()
+        {
+            await _context.AutoConnect();
+            var res = await _context.SendRequestToServerAsync<T, int>(2, _serviceController, RemoveRootNode(GetJsonObjectWithoutDefaultValue(_newModel), _removeRootNote));
+            this._collection.Add(res);
+            RefreshCollecation();
+            return res;
+        }
+
+        /// <summary>
+        /// Update Model
+        /// </summary>
+        /// <param name="_pkey"></param>
+        /// <returns></returns>
+        public async Task<T> Update(string _pkey)
+        {
+            object _id = null;
+            var v = GetJsonObjectUpdatedProperties(OldModel, _newModel, _pkey, ref _id);
+            if (v.Count == 0)
+                throw new WarningException("No updates");
+
+            await _context.AutoConnect();
+            var res = await _context.SendRequestToServerAsync<T, int>(1, string.Format("{0}/{1}", _serviceController, _id ?? ""), v);
+            if (res != null)
+                CopyPropertiesTo(res, OldModel);
+            RefreshCollecation();
+            return res;
+        }
+
+        /// <summary>
+        /// Delete Model
+        /// </summary>
+        /// <param name="_id"></param>
+        /// <returns></returns>
+        public async Task<T> Delete(string _id)
+        {
+            await _context.AutoConnect();
+            var res = await _context.SendRequestToServerAsync<T, int>(3, string.Format("{0}/{1}", _serviceController, _id), _id);
+            if (res != null)
+                _collection.Remove(res);
+            RefreshCollecation();
+            return res;
+        }
+
+        /// <summary>
+        /// Delete Model
+        /// </summary>
+        /// <param name="_oldentity"></param>
+        /// <param name="_pkey"></param>
+        /// <returns></returns>
+        public async Task<T> Delete(T _oldentity, string _pkey)
+        {
+            string _id = string.Empty;
+
+            if (_oldentity != null)
+                _id = _oldentity.GetType().GetProperty(_pkey).GetValue(_oldentity).ToString();
+            await _context.AutoConnect();
+            var res = await _context.SendRequestToServerAsync<T, int>(3, string.Format("{0}/{1}", _serviceController, _id), _id);
+            if (res != null)
+                _collection.Remove(res);
+            RefreshCollecation();
+            return res;
+        }
+
+        /// <summary>
+        /// Set Default
+        /// </summary>
+        /// <param name="maybeNullable"></param>
+        /// <returns></returns>
+        object DefaultValue(Type maybeNullable)
+        {
+            try
+            {
+                Type underlying = Nullable.GetUnderlyingType(maybeNullable);
+                if (underlying != null)
+                    return Activator.CreateInstance(underlying);
+                return Activator.CreateInstance(maybeNullable);
+            }
+            catch { }
+            return null;
+        }
+
+
+        /// <summary>
+        /// Remove Root Json String
+        /// </summary>
+        /// <param name="jobj"></param>
+        /// <param name="_removeRootNote"></param>
+        /// <returns></returns>
+        JObject RemoveRootNode(JObject jobj, bool _removeRootNote)
+        {
+            if (_removeRootNote)
+            {
+                if (jobj == null)
+                    return jobj;
+                dynamic rootjobj = jobj.First, Etidableobj = null;
+                if (rootjobj != null)
+                    Etidableobj = rootjobj.First;
+                if (Etidableobj != null)
+                    return Etidableobj;
+            }
+            return jobj;
+        }
+
+        /// <summary>
+        /// Remove Default value in Structure
+        /// </summary>
+        /// <param name="_entity"></param>
+        /// <returns></returns>
+        public JObject GetJsonObjectWithoutDefaultValue(T _entity)
+        {
+            object _pkey = null;
+            return GetJsonObjectMismatchedValue(default(T), _entity, "", ref _pkey);
+        }
+
+        /// <summary>
+        /// Get Update value from new Model
+        /// </summary>
+        /// <param name="_oldentity"></param>
+        /// <param name="_newentity"></param>
+        /// <param name="_pkey"></param>
+        /// <param name="_pkeyvalue"></param>
+        /// <returns></returns>
+        public JObject GetJsonObjectMismatchedValue(T _oldentity, T _newentity, string _pkey, ref object _pkeyvalue)
+        {
+            JObject jobj = new JObject();
+            PropertyInfo[] _new = null, _old = null;
+            int _protertycount = 0;
+            if (_newentity != null)
+            {
+                _new = _newentity.GetType().GetProperties();
+                _protertycount = _new.Length;
+            }
+
+            if (_oldentity != null)
+            {
+                _old = _oldentity.GetType().GetProperties();
+                _protertycount = _old.Length;
+            }
+
+            if (_protertycount > 0)
+                for (int i = 0; i < _protertycount; i++)
+                {
+                    try
+                    {
+                        var nj = new JProperty(_new[i].Name, _new[i].PropertyType.IsEnum ? (int)_new[i].GetValue(_newentity) : _new[i].GetValue(_newentity));
+                        if (_pkey != null)
+                        {
+                            if (string.Compare(_pkey, _new[i].Name, true) == 0)
+                                _pkeyvalue = _new[i].GetValue(_newentity);
+                        }
+                        if (_pkey != null)
+                            if (_oldentity != null)
+                            {
+                                if (_old[i].GetValue(_oldentity) == _new[i].GetValue(_newentity))
+                                    nj.Value = null;
+                            }
+
+                        if (nj.Value.Type != JTokenType.Null)
+                            jobj.Add(nj);
+                    }
+                    catch { }
+                }
+
+            return jobj;
+        }
+        /// <summary>
+        /// Get Update value from old Model
+        /// </summary>
+        /// <param name="_oldentity"></param>
+        /// <param name="_newentity"></param>
+        /// <param name="_pkey"></param>
+        /// <param name="_pkeyvalue"></param>
+        /// <returns></returns>
+        public JObject GetJsonObjectUpdatedProperties(T _oldentity, T _newentity, string _pkey, ref object _pkeyvalue)
+        {
+            JObject jobj = new JObject();
+
+            JObject sourceJObject = JObject.FromObject(_newentity);
+            JObject targetJObject = JObject.FromObject(_oldentity);
+            if (!JToken.DeepEquals(sourceJObject, targetJObject))
+            {
+                foreach (KeyValuePair<string, JToken> sourceProperty in sourceJObject)
+                {
+                    JProperty targetProp = targetJObject.Property(sourceProperty.Key);
+                    if (_pkeyvalue == null)
+                        if (string.Compare(sourceProperty.Key, _pkey, true) == 0)
+                            _pkeyvalue = Convert.ToString(targetProp.Value);
+                    if (!JToken.DeepEquals(sourceProperty.Value, targetProp.Value))
+                        jobj.Add(sourceJObject.Property(sourceProperty.Key));
+                }
+            }
+            RemoveRootNode(jobj, _removeRootNote);
+            return jobj;
+        }
+
+    }
+
+
+
+    internal sealed class FTPUploader : IBaseUploader
+    {
+
+        #region IDisposable Implementation
+        bool _isdispose = false;
+        /// <summary>
+        /// Disposed object
+        /// </summary>
+        /// <param name="_isdispose"></param>
+        void Dispose(bool _isdispose)
+        {
+            if (!this._isdispose && _isdispose)
+            {
+                this._isdispose = true;
+                if (_ftpwebrequest != null)
+                {
+                    _ftpwebrequest.Abort();
+                    Stop();
+                }
+                _ftpwebrequest = null;
+            }
+        }
+
+        /// <summary>
+        /// Dispose 
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        #endregion
+
+        WebCredential _webcer, _webProxycer;
+
+        public event UploaderReady UploaderReadyEvent;
+
+        public event UploaderProgress UploaderProgressEvent;
+
+        public event ENC UploaderENC;
+
+        FtpWebRequest _ftpwebrequest = null;
+
+        bool _isPassive = false, _KeepAlive = false;
+
+        volatile bool _stopped = false;
+
+        volatile bool _paused = false;
+
+        volatile bool _started = false;
+
+        public bool Stopped { get { return _stopped; } }
+
+        private Thread _workerThread = null;
+
+        private Exception _exception = null;
+
+        private UploadObject _cur;
+
+        private string _key = "";
+
+        int _offset = 0;
+
+
+
+
+
+        /// <summary>
+        /// Constructor of class
+        /// </summary>
+        /// <param name="_cur"></param>
+        /// <param name="_webcer"></param>
+        /// <param name="_webProxycer"></param>
+        /// <param name="_isPassive"></param>
+        /// <param name="_KeepAlive"></param>
+        /// <param name="_offset"></param>
+        public FTPUploader(UploadObject _cur, WebCredential _webcer, WebCredential _webProxycer, bool _isPassive, bool _KeepAlive, int _offset)
+        {
+            this._cur = _cur;
+            this._webcer = _webcer;
+            this._webProxycer = _webProxycer;
+            this._isPassive = _isPassive;
+            _key = Path.GetFileNameWithoutExtension(_cur.Filename);
+            this._offset = _offset;
+        }
+
+        /// <summary>
+        /// Start FTP Uploaing
+        /// </summary>
+        public void Start()
+        {
+            if (!_started && !_stopped)
+            {
+                _started = true;
+                _workerThread = new Thread(_workasync);
+                _workerThread.Name = "FTPUploader" + System.Guid.NewGuid().ToString();
+                _workerThread.Start();
+            }
+        }
+
+        /// <summary>
+        /// Upload file to FTPServer asynchronously
+        /// </summary>
+        private void _workasync()
+        {
+            _upload();
+            UploaderReadyEvent.Invoke(_cur.ServerPath, _exception);
+            _stopped = true;
+        }
+
+        /// <summary>
+        /// Stop FTP Uploading
+        /// </summary>
+        public void Stop()
+        {
+            if (_started && !_stopped)
+            {
+                // stop
+                _stopped = true;
+                _paused = false;
+                _workerThread.Abort();
+            }
+        }
+
+        /// <summary>
+        /// Pause FTP Uploading
+        /// </summary>
+        public void Pause()
+        {
+            _paused = true;
+            _ftpwebrequest.Abort();
+        }
+
+        /// <summary>
+        /// Resume FTP Uploading
+        /// </summary>
+        public void Resume()
+        {
+            _paused = false;
+        }
+
+        /// <summary>
+        /// Upload file to FTPServer
+        /// </summary>
+        private void _upload()
+        {
+
+            UriBuilder uri = new UriBuilder(_webcer.uri);
+            uri.Path = Path.Combine(uri.Path.Substring(0, uri.Path.LastIndexOf(Path.AltDirectorySeparatorChar)), _cur.ServerPath.TrimStart(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar));
+            _key = uri.Path;// Path.Combine(_cer.RootPath, _cur.ServerPath);// Path.GetFileNameWithoutExtension(_cur.Filename);
+
+            _repeat:
+            try
+            {
+
+                while (_paused == true)
+                    Thread.Sleep(1000);
+
+                string _uri = Path.AltDirectorySeparatorChar + uri.Path.TrimStart(Path.AltDirectorySeparatorChar);
+                long _offset = GetFTPFileSize(_uri);
+
+                if (_offset != Utils.GetFileSize(_cur.Filename))
+                {
+                    _ftpwebrequest = (FtpWebRequest)FtpWebRequest.Create(_uri);//FtpAddress + file
+
+                    _ftpwebrequest.Method = (_offset == 0 ? WebRequestMethods.Ftp.UploadFile : WebRequestMethods.Ftp.AppendFile);
+
+                    SetCredentials(_webcer.Username, _webcer.Password);
+                    if (_webProxycer == null)
+                        _webProxycer = new WebCredential();
+
+                    if (!string.IsNullOrEmpty(_webProxycer.Username) && !string.IsNullOrEmpty(_webProxycer.Password))
+                        UseProxy(false, _webProxycer.uri, _webProxycer.Username, _webProxycer.Password);
+                    else
+                        UseProxy(true);
+
+                    _ftpwebrequest.UsePassive = _isPassive;
+                    _ftpwebrequest.UseBinary = true;
+                    _ftpwebrequest.KeepAlive = _KeepAlive;
+
+
+                    using (var _fs = new FileStream(_cur.Filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        if (_offset != 0)
+                            _fs.Seek(_offset, SeekOrigin.Begin);
+                        UploadBytes(_fs, _ftpwebrequest.GetRequestStream());
+                    }
+                }
+
+                _cur.IsUploaded = true;
+            }
+            catch (Exception ex)
+            {
+                //retry
+                Logger.Error(ex);
+                if (!_isdispose)
+                    goto _repeat;
+            }
+        }
+
+
+        /// <summary>
+        /// Get Filesize exist in server
+        /// </summary>
+        /// <param name="_uri"></param>
+        /// <returns></returns>
+        private long GetFTPFileSize(string _uri)
+        {
+            long resumeOffset = 0;
+            try
+            {
+                FtpWebRequest reqSize = (FtpWebRequest)FtpWebRequest.Create(_uri);
+                if (!string.IsNullOrEmpty(_webcer.Username) && !string.IsNullOrEmpty(_webcer.Password))
+                    reqSize.Credentials = new NetworkCredential(_webcer.Username, _webcer.Password);
+                //Check if file exists for resume and offset
+                reqSize.Method = WebRequestMethods.Ftp.GetFileSize;
+                reqSize.UseBinary = true;
+                FtpWebResponse loginresponse = (FtpWebResponse)reqSize.GetResponse();
+                FtpWebResponse respSize = (FtpWebResponse)reqSize.GetResponse();
+                respSize = (FtpWebResponse)reqSize.GetResponse();
+                resumeOffset = respSize.ContentLength;
+
+                respSize.Close();
+            }
+            catch
+            {
+                resumeOffset = 0;
+            }
+            return resumeOffset;
+        }
+
+        /// <summary>
+        /// Use Proxy server
+        /// </summary>
+        /// <param name="_useDefault"></param>
+        /// <param name="_proxyuri"></param>
+        /// <param name="username"></param>
+        /// <param name="password"></param>
+        void UseProxy(bool _useDefault, string _proxyuri = "", string username = "", string password = "")
+        {
+            WebProxy myProxy = null;
+            if (_useDefault == false)
+            {
+                myProxy = new WebProxy();
+                myProxy.Address = new Uri(_proxyuri);
+                myProxy.Credentials = new NetworkCredential(username, password);
+                _ftpwebrequest.Proxy = myProxy;
+            }
+            else
+            {
+#pragma warning disable CS0618 // Type or member is obsolete
+                myProxy = WebProxy.GetDefaultProxy();
+#pragma warning restore CS0618 // Type or member is obsolete
+                myProxy.Credentials = CredentialCache.DefaultCredentials;
+            }
+            _ftpwebrequest.Proxy = myProxy;
+        }
+
+        /// <summary>
+        /// Set Credential
+        /// </summary>
+        /// <param name="username"></param>
+        /// <param name="password"></param>
+        void SetCredentials(string username, string password)
+        {
+            if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+                _ftpwebrequest.Credentials = new NetworkCredential(username, password);
+        }
+
+        /// <summary>
+        /// Download file from FTP Server
+        /// </summary>
+        /// <param name="_webcer"></param>
+        /// <param name="_webProxycer"></param>
+        /// <param name="_serverpath"></param>
+        /// <param name="_filename"></param>
+        internal static void Download(WebCredential _webcer, WebCredential _webProxycer, string _serverpath, string _filename)
+        {
+            UriBuilder uri = new UriBuilder(_webcer.uri);
+            uri.Path = Path.Combine(uri.Path.Substring(0, uri.Path.LastIndexOf(Path.AltDirectorySeparatorChar)), _serverpath.TrimStart(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar));
+            FtpWebRequest _webreq = (FtpWebRequest)WebRequest.Create(uri.Uri);
+
+            _webreq.Method = WebRequestMethods.Ftp.DownloadFile;
+            _webreq.KeepAlive = true;
+            _webreq.UsePassive = false;
+            _webreq.UseBinary = false;
+            if (_webcer != null)
+            {
+                if (!string.IsNullOrEmpty(_webcer.Username) && !string.IsNullOrEmpty(_webcer.Password))
+                    _webreq.Credentials = new NetworkCredential(_webcer.Username, _webcer.Password);
+            }
+            WebProxy myProxy = null;
+            if (_webProxycer != null)
+            {
+                myProxy = new WebProxy();
+                myProxy.Address = new Uri(_webProxycer.uri);
+                myProxy.Credentials = new NetworkCredential(_webProxycer.Username, _webProxycer.Password);
+            }
+            else
+            {
+#pragma warning disable CS0618 // Type or member is obsolete
+                myProxy = WebProxy.GetDefaultProxy();
+#pragma warning restore CS0618 // Type or member is obsolete
+                myProxy.Credentials = System.Net.CredentialCache.DefaultCredentials;
+            }
+            _webreq.Proxy = myProxy;
+
+            FtpWebResponse response = (FtpWebResponse)_webreq.GetResponse();
+
+            Stream responseStream = response.GetResponseStream();
+            StreamReader reader = new StreamReader(responseStream);
+
+            using (FileStream writer = new FileStream(_filename, FileMode.Create, FileAccess.Write))
+            {
+                long length = response.ContentLength;
+                int bufferSize = 2048;
+                int readCount;
+                byte[] buffer = new byte[2048];
+
+                readCount = responseStream.Read(buffer, 0, bufferSize);
+                while (readCount > 0)
+                {
+                    writer.Write(buffer, 0, readCount);
+                    readCount = responseStream.Read(buffer, 0, bufferSize);
+                }
+            }
+
+            reader.Close();
+            response.Close();
+        }
+
+
+
+        /// <summary>
+        /// Uploading bytes to FTPServer
+        /// </summary>
+        /// <param name="_InStream"></param>
+        /// <param name="_Outstream"></param>
+        private void UploadBytes(Stream _InStream, Stream _Outstream)
+        {
+            if (_offset == 0)
+                _offset = 2048;
+            byte[] buffer = new byte[_offset];
+            long _rec = 0;
+            do
+            {
+                int bytesRead = _InStream.Read(buffer, 0, _offset);
+                if (bytesRead == 0) break;
+                _rec += bytesRead;
+                if (_cur.IsEnc)
+                    buffer = UploaderENC.Invoke(buffer, bytesRead);
+
+                // write bytes to output stream
+                _Outstream.Write(buffer, 0, bytesRead);
+
+                UploaderProgressEvent.Invoke(_key, Convert.ToInt32((_rec * 100.0) / _cur.ObjectSize));
+
+            } while (!_isdispose);
+        }
+
+    }
+
+    /// <summary>
+    /// HTTP Uploader
+    /// </summary>
+    internal sealed class HTTPUploader : IBaseUploader
+    {
+        #region IDisposable Implementation
+        bool _isdispose = false;
+        /// <summary>
+        /// Disposed object
+        /// </summary>
+        /// <param name="_isdispose"></param>
+        void Dispose(bool _isdispose)
+        {
+            if (!this._isdispose && _isdispose)
+            {
+                this._isdispose = true;
+                if (_webrequest != null)
+                {
+                    _webrequest.Abort();
+                    Stop();
+                }
+                _webrequest = null;
+            }
+        }
+
+        /// <summary>
+        /// Dispose 
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        #endregion
+
+        WebCredential _webcer, _webProxycer;
+
+        public event UploaderReady UploaderReadyEvent;
+
+        public event UploaderProgress UploaderProgressEvent;
+
+        public event ENC UploaderENC;
+
+        HttpWebRequest _webrequest = null;
+
+        volatile bool _stopped = false;
+
+        volatile bool _paused = false;
+
+        volatile bool _started = false;
+
+        public bool Stopped { get { return _stopped; } }
+
+        private Thread _workerThread = null;
+
+        private Exception _exception = null;
+
+        private UploadObject _cur;
+
+        private string _key = "";
+
+        int _offset = 0;
+
+
+
+
+        /// <summary>
+        /// Constructor of class
+        /// </summary>
+        /// <param name="_cur"></param>
+        /// <param name="_webcer"></param>
+        /// <param name="_webProxycer"></param>
+        /// <param name="_offset"></param>
+        internal HTTPUploader(UploadObject _cur, WebCredential _webcer, WebCredential _webProxycer, int _offset)
+        {
+            // TODO: Complete member initialization
+            this._cur = _cur;
+            this._webcer = _webcer;
+            this._webProxycer = _webProxycer;
+            this._key = Path.GetFileNameWithoutExtension(_cur.Filename);
+            this._offset = _offset;
+        }
+
+
+        /// <summary>
+        /// Start HTTP Uploading
+        /// </summary>
+        public void Start()
+        {
+            if (!_started && !_stopped)
+            {
+                _started = true;
+                _workerThread = new Thread(_workasync);
+                _workerThread.Name = "HTTPUploader#" + System.Guid.NewGuid().ToString();
+                _workerThread.Start();
+            }
+        }
+
+
+        /// <summary>
+        /// Upload file to HTTP asynchronously
+        /// </summary>
+        private void _workasync()
+        {
+            _upload();
+            UploaderReadyEvent.Invoke(_key, _exception);
+            _stopped = true;
+        }
+
+        /// <summary>
+        /// Stop HTTP Uploading
+        /// </summary>
+        public void Stop()
+        {
+            if (_started && !_stopped)
+            {
+                // stop
+                _stopped = true;
+                _paused = false;
+                _workerThread.Abort();
+            }
+        }
+
+        /// <summary>
+        /// Pause HTTP Uploading
+        /// </summary>
+        public void Pause()
+        {
+            _paused = true;
+            _webrequest.Abort();
+        }
+
+        /// <summary>
+        /// Resume HTTP Uploading
+        /// </summary>
+        public void Resume()
+        {
+            _paused = false;
+        }
+
+        /// <summary>
+        /// Upload file to HTTPServer
+        /// </summary>
+        internal void _upload()
+        {
+            UriBuilder uri = new UriBuilder(_webcer.uri);
+            uri.Path = Path.Combine(uri.Path.Substring(0, uri.Path.LastIndexOf(Path.AltDirectorySeparatorChar)), _cur.ServerPath.TrimStart(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar));
+            _key = uri.Path;// Path.Combine(_cer.RootPath, _cur.ServerPath);// Path.GetFileNameWithoutExtension(_cur.Filename);
+
+            _repeat:
+            try
+            {
+                while (_paused == true)
+                    Thread.Sleep(1000);
+
+                _webrequest = (HttpWebRequest)WebRequest.Create(uri.Uri);//FtpAddress + file
+                _webrequest.ContentLength = Utils.GetFileSize(_cur.Filename);
+                _webrequest.AllowWriteStreamBuffering = true;
+                _webrequest.Timeout = int.MaxValue; //15000;
+                _webrequest.ReadWriteTimeout = int.MaxValue;
+                _webrequest.Method = "PUT";
+
+                SetCredentials(_webcer.Username, _webcer.Password);
+                if (_webProxycer == null)
+                    _webProxycer = new WebCredential();
+                if (!string.IsNullOrEmpty(_webProxycer.Username) && !string.IsNullOrEmpty(_webProxycer.Password))
+                    UseProxy(false, _webProxycer.uri, _webProxycer.Username, _webProxycer.Password);
+                else
+                    UseProxy(true);
+
+                using (var _fs = new FileStream(_cur.Filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    UploadBytes(_fs, _webrequest.GetRequestStream());
+                }
+            }
+            catch (Exception ex)
+            {
+                //retry
+                Logger.Error(ex);
+                if (!_isdispose)
+                    goto _repeat;
+            }
+        }
+
+
+        /// <summary>
+        /// Use Proxy server
+        /// </summary>
+        /// <param name="_useDefault"></param>
+        /// <param name="_proxyuri"></param>
+        /// <param name="username"></param>
+        /// <param name="password"></param>
+        void UseProxy(bool _useDefault, string _proxyuri = "", string username = "", string password = "")
+        {
+            WebProxy myProxy = null;
+            if (_useDefault == false)
+            {
+                myProxy = new WebProxy();
+                myProxy.Address = new Uri(_proxyuri);
+                myProxy.Credentials = new NetworkCredential(username, password);
+                _webrequest.Proxy = myProxy;
+            }
+            else
+            {
+#pragma warning disable CS0618 // Type or member is obsolete
+                myProxy = WebProxy.GetDefaultProxy();
+#pragma warning restore CS0618 // Type or member is obsolete
+                myProxy.Credentials = CredentialCache.DefaultCredentials;
+            }
+            _webrequest.Proxy = myProxy;
+        }
+
+        /// <summary>
+        /// Set Credential
+        /// </summary>
+        /// <param name="username"></param>
+        /// <param name="password"></param>
+        void SetCredentials(string username, string password)
+        {
+            if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+                _webrequest.Credentials = new NetworkCredential(username, password);
+
+        }
+
+
+        /// <summary>
+        /// Download file from HTTP Server
+        /// </summary>
+        /// <param name="_webcer"></param>
+        /// <param name="_webProxycer"></param>
+        /// <param name="_serverpath"></param>
+        /// <param name="_filename"></param>
+        internal static void Download(WebCredential _webcer, WebCredential _webProxycer, string _serverpath, string _filename)
+        {
+            UriBuilder uri = new UriBuilder(_webcer.uri);
+            uri.Path = Path.Combine(uri.Path.Substring(0, uri.Path.LastIndexOf(Path.AltDirectorySeparatorChar)), _serverpath.TrimStart(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar));
+            using (WebClient _webreq = new WebClient())
+            {
+                if (_webcer != null)
+                {
+                    if (!string.IsNullOrEmpty(_webcer.Username) && !string.IsNullOrEmpty(_webcer.Password))
+                        _webreq.Credentials = new NetworkCredential(_webcer.Username, _webcer.Password);
+                }
+                WebProxy myProxy = null;
+                if (_webProxycer != null)
+                {
+                    myProxy = new WebProxy();
+                    myProxy.Address = new Uri(_webProxycer.uri);
+                    myProxy.Credentials = new NetworkCredential(_webProxycer.Username, _webProxycer.Password);
+                }
+                else
+                {
+#pragma warning disable CS0618 // Type or member is obsolete
+                    myProxy = WebProxy.GetDefaultProxy();
+#pragma warning restore CS0618 // Type or member is obsolete
+                    myProxy.Credentials = CredentialCache.DefaultCredentials;
+                }
+                _webreq.Proxy = myProxy;
+                _webreq.DownloadFile(uri.Uri, _filename);
+            }
+        }
+
+        /// <summary>
+        ///  Uploading bytes to HTTPServer
+        /// </summary>
+        /// <param name="_InStream"></param>
+        /// <param name="_Outstream"></param>
+        private void UploadBytes(Stream _InStream, Stream _Outstream)
+        {
+            if (_offset == 0)
+                _offset = 2048;
+            byte[] buffer = new byte[_offset];
+            long _rec = 0;
+            do
+            {
+                int bytesRead = _InStream.Read(buffer, 0, _offset);
+                if (bytesRead == 0) break;
+                if (_cur.IsEnc)
+                    buffer = UploaderENC.Invoke(buffer, bytesRead);
+                _rec += bytesRead;
+                // simulates slow connection
+                Thread.Sleep(3);
+
+                // write bytes to output stream
+                _Outstream.Write(buffer, 0, bytesRead);
+
+                UploaderProgressEvent.Invoke(_key, Convert.ToInt32((_rec * 100.0) / _cur.ObjectSize));
+            } while (!_isdispose);
+            _cur.IsUploaded = true;
+        }
+
+
+
+    }
+
+    internal delegate void UploaderReady(string Key, Exception e);
+    internal delegate void UploaderProgress(string Key, int PercentDone);
+    internal delegate byte[] ENC(byte[] _byte, int _len);
+    /// <summary>
+    /// Base Uploader Interface
+    /// </summary>
+    internal interface IBaseUploader : IDisposable
+    {
+        void Start();
+        void Stop();
+        void Pause();
+        void Resume();
+        bool Stopped { get; }
+        event UploaderReady UploaderReadyEvent;
+        event UploaderProgress UploaderProgressEvent;
+        event ENC UploaderENC;
+    }
+
+    /// <summary>
+    /// DataCollection Interface
+    /// </summary>
+    public interface IDataCollection : IReadDataCollection
+    {
+        Object NewModel { get; }
+        Object OldModel { get; }
+        bool IsUpdated { get; }
+        bool IsEditable { get; }
+
+      /*  IList Collection { get; }
+        void Sort(string sortExpression, bool _asc);
+        void Clear();
+        int Offset { get; }
+        long Total { get; }
+        int CurrentIndex { set; get; }
+        Dictionary<string, int> PageIndices { get; }*/
+    }
+
+    /// <summary>
+    /// DataCollectionManager interface 
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    public interface IDataCollectionManager<T> : IDataCollection
+    {
+        new T NewModel { set; get; }
+        new T OldModel { get; }
+        T NewInstance();
+        Task<T> CreateNew();
+        Task<T> Update(string _pkey);
+        Task<T> Delete(string _id);
+        Task<List<T>> GetCollection(QueryFilter _qfilter);
+        Task<T> Get(string _id);
+    }
+
+    /// <summary>
+    /// IReadDataCollection
+    /// </summary>
+    public interface IReadDataCollection : INotifyPropertyChanged, IDisposable
+    {
+        IList Collection { get; }
+        void Sort(string sortExpression, bool _asc);
+        void Clear();
+        int Offset { get; }
+        long Total { get; }
+        int CurrentIndex { set; get; }
+        Dictionary<string, int> PageIndices { get; }
+    }
+
+
+
+
+internal class ReadDataCollection<T> : IReadDataCollection
+    {
+        /// <summary>
+        /// DisplayPageNumber
+        /// </summary>
+        public int DisplayPageNumber { set; get; }
+        public IList Collection { private set; get; }
+        protected List<T> _collection;
+        QueryFilter _qf;
+        protected IRESTAPIClientHandler _context;
+        protected readonly string _serviceController = string.Empty;
+        int _offset = 0;
+        /// <summary>
+        /// Collection offset value
+        /// </summary>
+        public int Offset
+        {
+            private set
+            {
+                if (_offset != value)
+                {
+                    _offset = value;
+                    OnPropertyChanged("Offset");
+                }
+            }
+            get { return _offset; }
+        }
+
+        long _total = 0;
+        /// <summary>
+        /// Total count of filter
+        /// </summary>
+        public long Total
+        {
+            private set
+            {
+                if (_total != value)
+                {
+                    _total = value;
+                    OnPropertyChanged("Total");
+                }
+            }
+            get
+            {
+                return _total;
+            }
+        }
+        /// <summary>
+        /// Page Indices
+        /// </summary>
+        public Dictionary<string, int> PageIndices { private set; get; }
+
+        int _currentIndex = 0;
+        /// <summary>
+        /// Current Page index
+        /// </summary>
+        public int CurrentIndex
+        {
+            set
+            {
+                if (_currentIndex != value)
+                {
+                    _currentIndex = value;
+                    if (_qf != null)
+                    {
+                        _qf.Offset = Math.Max(0, value * _qf.Limit);
+#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+                        GetCollection(_qf);
+#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+                    }
+                    OnPropertyChanged("CurrentIndex");
+                }
+            }
+            get { return _currentIndex; }
+        }
+
+        #region Inotification changed event
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged(string name)
+        {
+            PropertyChangedEventHandler handler = PropertyChanged;
+            if (handler != null)
+                handler(this, new PropertyChangedEventArgs(name));
+        }
+        #endregion
+
+        #region IDisposable Method
+
+        bool _disposed = false;
+
+        protected virtual void Dispose(bool _disposing)
+        {
+            if (_disposing && !this._disposed)
+            {
+                // Free managed resources objects
+                GC.SuppressFinalize(this);
+                if (_context != null)
+                    _context.Dispose();
+                _collection = null;
+                this._disposed = true;
+                GC.SuppressFinalize(this);
+            }
+            // Free any unmanaged objects here. 
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+
+        #endregion
+
+        public ReadDataCollection(IRESTAPIClientHandler _context, string _serviceController)
+        {
+            this._context = _context;
+            this._serviceController = _serviceController;
+            this._collection = new List<T>();
+            DisplayPageNumber = 10;
+            PageIndices = new Dictionary<string, int>();
+            RefreshCollecation();
+        }
+
+        /// <summary>
+        /// Load Collection
+        /// </summary>
+        /// <param name="_qfilter"></param>
+        /// <returns></returns>
+        public async Task<List<T>> GetCollection(QueryFilter _qfilter)
+        {
+            try
+            {
+                if (_qfilter != _qf)
+                    this.Offset = 0;
+                else
+                {
+                    if (_qfilter != null)
+                        this.Offset = _qfilter.Offset;
+                }
+                _qf = _qfilter;
+                await _context.AutoConnect();
+                Ref<long> _res = new Ref<long>();
+                var res = await _context.SendRequestToServerAsync<List<T>, long>(0, _serviceController + "s", (_qfilter != null ? _qfilter.ToString() : string.Empty), _res);
+                this.Total = _res.Value;
+                PageNavigationSetup(_total, _offset, _qfilter != null ? _qfilter.Limit : 20);
+                if (res != null)
+                    this._collection = res;
+            }
+            catch
+            {
+                this._collection.Clear();
+                throw;
+            }
+            finally
+            {
+                RefreshCollecation();
+            }
+            return _collection;
+        }
+
+
+        /// <summary>
+        /// Navigate Page Control setup
+        /// </summary>
+        /// <param name="_total"></param>
+        /// <param name="_offset"></param>
+        /// <param name="_limit"></param>
+        void PageNavigationSetup(long _total, int _offset, int _limit)
+        {
+            this.PageIndices = new Dictionary<string, int>();
+            if (_total / _limit > 1)
+            {
+                if (_offset > 0)
+                {
+                    if (_offset / _limit > 1)
+                        PageIndices.Add("Start", 0);
+
+                    PageIndices.Add("Previous", Math.Max(0, (_offset / _limit) - 1));
+                }
+
+                _currentIndex = _offset / _limit;
+                int _offset2 = _offset;
+
+                while ((((_total - _offset2) / _limit) < 8))
+                {
+                    _offset2 -= _limit;
+                    if (_offset2 <= 0)
+                    {
+                        _offset2 = 0;
+                        break;
+                    }
+                }
+
+                PageIndices.Add(((_offset2 / _limit) + 1).ToString(), _offset2 / _limit);
+
+                for (int i = _offset2 + _limit; i <= _total; i += _limit)
+                {
+                    int _pgIndex = i / _limit;
+                    if (10 <= PageIndices.Count)
+                        break;
+                    PageIndices.Add((_pgIndex + 1).ToString(), _pgIndex);
+                }
+
+                if (_total >= _offset + _limit)
+                {
+                    PageIndices.Add("Next", (int)((_offset + _limit) / _limit));
+                    if (_total >= (_offset + _limit * 2))
+                        PageIndices["End"] = (int)(_total / _limit);
+                }
+                OnPropertyChanged("PageIndices");
+                OnPropertyChanged("CurrentIndex");
+            }
+        }
+        /// <summary>
+        /// Get Details
+        /// </summary>
+        /// <param name="_id"></param>
+        /// <returns></returns>
+        public async Task<T> Get(string _id)
+        {
+            await _context.AutoConnect();
+            return  await _context.SendRequestToServerAsync<T, int>(0, string.Format("{0}/{1}", _serviceController, _id), string.Empty);
+        }
+
+        /// <summary>
+        /// Sort Collection here
+        /// </summary>
+        /// <param name="sortExpression"></param>
+        /// <param name="_asc"></param>
+        public void Sort(string sortExpression, bool _asc)
+        {
+            if (string.IsNullOrEmpty(sortExpression))
+                return;
+            if (_asc)
+            {
+                Collection = (from n in _collection
+                              orderby GetDynamicSortProperty(n, sortExpression) ascending
+                              select n).ToList();
+            }
+            else
+            {
+                Collection = (from n in _collection
+                              orderby GetDynamicSortProperty(n, sortExpression) descending
+                              select n).ToList();
+            }
+            OnPropertyChanged("Collection");
+        }
+
+        object GetDynamicSortProperty(object item, string propName)
+        {
+            //Use reflection to get order type
+            return item.GetType().GetProperty(propName).GetValue(item, null);
+        }
+
+        /// <summary>
+        /// Clear Collection
+        /// </summary>
+        public void Clear()
+        {
+            if (_collection != null)
+                _collection.Clear();
+            _total = 0;
+            _offset = 0;
+            RefreshCollecation();
+        }
+
+        protected void RefreshCollecation()
+        {
+            this.Collection = this._collection as IList;
+            OnPropertyChanged("Collection");
+            OnPropertyChanged("PageIndices");
+        }
+    }
+
+
+/// <summary>
+    /// Amazon S3 Upload 
+    /// </summary>
+    internal sealed class S3MultipartUploader : IBaseUploader
+    {
+        delegate void UpdateProgress();
+
+        #region IDisposable Implementation
+        bool _isdispose = false;
+        /// <summary>
+        /// Disposed object
+        /// </summary>
+        /// <param name="_isdispose"></param>
+        void Dispose(bool _isdispose)
+        {
+            if (!this._isdispose && _isdispose)
+            {
+                this._isdispose = true;
+                if (_client != null)
+                {
+                    Stop();
+                    if (!string.IsNullOrEmpty(_uploadId))
+                        _client.AbortMultipartUpload(_cer.BucketName, this._key, this._uploadId);
+                    _client.Dispose();
+                }
+                ltfu = null;
+                _client = null;
+            }
+        }
+
+        /// <summary>
+        /// Dispose 
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        #endregion
+
+        public event UploaderReady UploaderReadyEvent;
+
+        public event UploaderProgress UploaderProgressEvent;
+
+        event ENC _uploaderENC;
+        public event ENC UploaderENC
+        {
+            add
+            {
+                _uploaderENC += value;
+            }
+
+            remove
+            {
+                _uploaderENC -= value;
+            }
+        }
+
+        readonly int UPLOAD_TIMEOUT = 60 * 60 * 1000;
+        readonly long PART_SIZE = 5 * 1024 * 1024;
+        List<S3Uploader> ltfu = null;
+
+        static AmazonS3Client _client;
+        private string _key = string.Empty;
+        string _filePath = string.Empty;
+        private string _uploadId = null;
+
+        volatile bool _stopped = false;
+        static volatile bool _paused = false;
+        volatile bool _started = false;
+
+        public bool Stopped { get { return _stopped; } }
+
+        double _totalWorkToDo = 0;
+        int _offset = 0;
+        bool _isenc = false;
+        private Thread _workerThread = null;
+
+        private Exception _exception = null;
+        private UploadObject _cur;
+        private AWSCredential _cer;
+
+        int _per = 0;
+        int Per
+        {
+            set
+            {
+                if (_per != value)
+                {
+                    _per = value;
+                    if (UploaderProgressEvent != null)
+                        UploaderProgressEvent.Invoke(_key, _per);
+                }
+            }
+
+        }
+
+        /// <summary>
+        /// Constructor of class
+        /// </summary>
+        /// <param name="_cur"></param>
+        /// <param name="_cer"></param>
+        /// <param name="offset"></param>
+        public S3MultipartUploader(UploadObject _cur, AWSCredential _cer, int offset)
+        {
+            // TODO: Complete member initialization
+            this._cur = _cur;
+            _filePath = _cur.Filename;
+            UriBuilder uri = new UriBuilder();
+            uri.Path = Path.Combine(_cer.RootPath ?? "", _cur.ServerPath.TrimStart(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar));
+
+            _key = uri.Path;// Path.Combine(_cer.RootPath, _cur.ServerPath);// Path.GetFileNameWithoutExtension(_cur.Filename);
+            if (string.IsNullOrEmpty(_cer.Region))
+                _cer.Region = Amazon.RegionEndpoint.USEast1.SystemName;
+            _client = new AmazonS3Client(_cer.AccessKey, _cer.SecretKey, Amazon.RegionEndpoint.GetBySystemName(_cer.Region));
+
+            ltfu = new List<S3Uploader>();
+            this._cer = _cer;
+            // File Media Splitter
+            if(_cur.RangeTo>0)
+                _totalWorkToDo = _cur.RangeTo-_cur.RangeFrom; // Get Media Part Object size 
+            else
+                _totalWorkToDo = _cur.ObjectSize;
+
+            _offset = offset;
+            PART_SIZE = GetPartSize(PART_SIZE);
+
+            if (_offset == 0)
+                _offset = 2048;
+            _isenc = _cur.IsEnc;
+        }
+
+
+        /// <summary>
+        /// Get file Part Size
+        /// </summary>
+        /// <param name="_newpart"></param>
+        /// <returns></returns>
+        private long GetPartSize(long _newpart)
+        {
+            if (_totalWorkToDo > _newpart)
+            {
+                if (_offset > 0)
+                {
+                    _newpart = _offset + _newpart - (_newpart % _offset);
+                    if ((_totalWorkToDo / _newpart) > 9999)
+                    {
+                        _newpart = (long)_totalWorkToDo / 9999;
+                        _newpart = _offset + _newpart - (_newpart % _offset);
+                    }
+                    return _newpart;
+                }
+            }
+            return _newpart;
+        }
+
+        /// <summary>
+        /// Start AmazonS3 Uploaing
+        /// </summary>
+        public void Start()
+        {
+            if (!_started && !_stopped)
+            {
+                _started = true;
+                _workerThread = new Thread(_workasync);
+                _workerThread.Name = "PausableS3MultipartUploader#" + System.Guid.NewGuid().ToString();
+                _workerThread.Start();
+            }
+        }
+
+
+        /// <summary>
+        /// Upload file to AmazonS3 asynchronously
+        /// </summary>
+        private void _workasync()
+        {
+            _upload();
+            UploaderReadyEvent.Invoke(_key, _exception);
+            _stopped = true;
+        }
+
+        /// <summary>
+        /// Upload file to AmazonS3
+        /// </summary>
+        private void _upload()
+        {
+            try
+            {
+                // if file size is less than 5MB then don't use multipart
+                if (_totalWorkToDo <= PART_SIZE)
+                    _putObject();
+                else
+                    _uploadMultipart();
+                _startMultithread();
+                List<PartETag> etags = new List<PartETag>();
+                foreach (var item in ltfu)
+                {
+                    _repeat:
+                    if (_isdispose)
+                        throw new Exception(Resources.s3m001);
+                    item.Join();
+                    var res = item.getPartETag();
+
+                    if (res != null)
+                        etags.Add(res);
+                    else
+                    {
+                        item._isstate = 0;
+                        item.upload();
+                        Logger.Warning("Restart===>" + item._isstate + "===");
+                        goto _repeat;
+                        // restart againt
+                    }
+                    if (_totalWorkToDo > PART_SIZE)
+                        _startMultithread();
+                }
+
+                if (_totalWorkToDo > PART_SIZE)
+                    _completeMultipartUpload(etags);
+
+                _cur.IsUploaded = true;
+
+            }
+            catch (ThreadAbortException ex)
+            {
+                _exception = ex;
+                if (!string.IsNullOrEmpty(_uploadId))
+                    AbortMultipartUpload(_cer.BucketName, _key, _uploadId);
+                Logger.Error(ex);
+            }
+            catch (Exception ex)
+            {
+                _exception = ex;
+                if (!string.IsNullOrEmpty(_uploadId))
+                    AbortMultipartUpload(_cer.BucketName, _key, _uploadId);
+                Logger.Error(ex);
+            }
+        }
+
+        /// <summary>
+        /// Start Multithread Uploading
+        /// </summary>
+        private void _startMultithread()
+        {
+            try
+            {
+                while (ltfu.Count(c => c._isstate == 1) < 13)
+                {
+
+                    var v = ltfu.FirstOrDefault(c => c._isstate == 0);
+                    if (v != null)
+                        v.upload();
+                    else
+                        break;
+
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Stop AmazonS3 Uploading
+        /// </summary>
+        public void Stop()
+        {
+            if (_started && !_stopped)
+            {
+                // stop
+                _stopped = true;
+                _paused = false;
+                _workerThread.Abort();
+            }
+        }
+
+        /// <summary>
+        /// Pause AmazonS3 Uploading
+        /// </summary>
+        public void Pause()
+        {
+            _paused = true;
+            ltfu.ForEach(c =>
+            {
+                if (c._isstate == 1)
+                    c.Suspend();
+            });
+
+        }
+
+        /// <summary>
+        /// Resume AmazonS3 Uploading
+        /// </summary>
+        public void Resume()
+        {
+            _paused = false;
+            ltfu.ForEach(c =>
+            {
+                if (c._isstate == 1)
+                    c.Resume();
+            });
+        }
+
+        /// <summary>
+        /// Download file from AmazonS3 server
+        /// </summary>
+        /// <param name="aws"></param>
+        /// <param name="_spath"></param>
+        /// <param name="_filename"></param>
+        internal static void Download(AWSCredential aws, string _spath, string _filename)
+        {
+            if (string.IsNullOrEmpty(aws.Region))
+                aws.Region = Amazon.RegionEndpoint.USEast1.SystemName;
+
+            using (var client = new AmazonS3Client(aws.AccessKey, aws.SecretKey, Amazon.RegionEndpoint.GetBySystemName(aws.Region)))
+            {
+                GetObjectRequest request = new GetObjectRequest
+                {
+                    BucketName = aws.BucketName,
+                    Key = _spath.Replace(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                };
+
+                using (GetObjectResponse response = client.GetObject(request))
+                {
+                    response.WriteResponseStreamToFile(_filename);
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// Upload file Without Multiparting
+        /// </summary>
+        void _putObject()
+        {
+            PutObjectRequest req = new PutObjectRequest()
+            {
+                BucketName = _cer.BucketName,
+                Key = _key,
+                AutoCloseStream = false,
+                Timeout = TimeSpan.FromMilliseconds(UPLOAD_TIMEOUT)
+            };
+
+            req.InputStream = new System.IO.MemoryStream();
+            //    ltfu.Add(new S3Uploader(req, new UpdateProgress(_updateProgress), _uploaderENC, _offset, _isenc, _filePath)); Without Media Part of Upload
+            ltfu.Add(new S3Uploader(req, new UpdateProgress(_updateProgress), _uploaderENC, _offset, _cur));
+        }
+
+
+
+        /// <summary>
+        /// Prepare Multipart Uploading
+        /// </summary>
+        /// <param name="partNumber"></param>
+        /// <param name="partSize"></param>
+        void _putPart(int partNumber, long partSize)
+        {
+            UploadPartRequest req = new UploadPartRequest()
+            {
+                BucketName = _cer.BucketName,
+                Key = _key,
+                PartNumber = partNumber + 1,
+                PartSize = partSize,
+                UploadId = _uploadId,
+                FilePosition = _cur.RangeFrom + (partNumber * PART_SIZE), 
+                Timeout = TimeSpan.FromMilliseconds(UPLOAD_TIMEOUT)
+            };
+
+            req.InputStream = new System.IO.MemoryStream();
+            // ltfu.Add(new S3Uploader(req, new UpdateProgress(_updateProgress),_uploaderENC,_offset, _isenc,_filePath)); Without Media Part of Upload
+            ltfu.Add(new S3Uploader(req, new UpdateProgress(_updateProgress),_uploaderENC,_offset, _cur)); 
+        }
+
+        /// <summary>
+        /// Update Progress
+        /// </summary>
+        void _updateProgress()
+        {
+            Per = (int)ltfu.Average(c => c.PercentageDone);
+        }
+
+        /// <summary>
+        /// Init MultipartUploading
+        /// </summary>
+        /// <returns></returns>
+        private string _initiateMultipartUpload()
+        {
+            InitiateMultipartUploadRequest req = new InitiateMultipartUploadRequest()
+            {
+                BucketName = _cer.BucketName,
+                Key = _key
+            };
+
+            return _client.InitiateMultipartUpload(req).UploadId;
+        }
+
+        /// <summary>
+        /// Upload MultiPart 
+        /// </summary>
+        private void _uploadMultipart()
+        {
+            _uploadId = _initiateMultipartUpload();
+            Console.WriteLine("UploadId={0}", _uploadId);
+
+            double div = _totalWorkToDo / (PART_SIZE);
+            long partCount = (long)(div);
+            if ((partCount * PART_SIZE) < (long)_totalWorkToDo)
+                ++partCount;
+            Console.WriteLine("partCount={0}", partCount);
+
+            long partSize = 0;
+
+
+            for (int i = 0; i < partCount; i++)
+            {
+                if (_stopped)
+                {
+                    //abortMultipartUpload(_uploadId, Key);
+                    break;
+                }
+                if (i == partCount - 1 && (partCount * PART_SIZE) > _totalWorkToDo)
+                    partSize = (long)_totalWorkToDo - ((partCount - 1) * PART_SIZE); // last part
+                else
+                    partSize = PART_SIZE;
+
+                _putPart(i, partSize);
+            }
+        }
+
+
+
+        /// <summary>
+        /// ListMultiPartUploading
+        /// </summary>
+        /// <param name="BucketName"></param>
+        /// <param name="Prefix"></param>
+        /// <returns></returns>
+        List<MultipartUpload> ListMultipartUploads(string BucketName, string Prefix = "")
+        {
+            ListMultipartUploadsRequest listMultipartRequest = new ListMultipartUploadsRequest()
+            {
+                BucketName = BucketName,
+                Prefix = Prefix
+            };
+            return _client.ListMultipartUploads(listMultipartRequest).MultipartUploads;
+        }
+
+        /// <summary>
+        /// Abort Multipart Uploading
+        /// </summary>
+        /// <param name="BucketName"></param>
+        /// <param name="Key"></param>
+        /// <param name="UploadId"></param>
+        void AbortMultipartUpload(string BucketName, string Key, string UploadId)
+        {
+            if (!string.IsNullOrEmpty(UploadId))
+            {
+                AbortMultipartUploadRequest req = new AbortMultipartUploadRequest()
+                {
+                    BucketName = BucketName,
+                    Key = Key,
+                    UploadId = UploadId
+                };
+                _client.AbortMultipartUpload(req);
+            }
+        }
+
+        /// <summary>
+        /// List All Multipart Uploading Objects
+        /// </summary>
+        /// <param name="BucketName"></param>
+        /// <param name="Key"></param>
+        /// <param name="UploadId"></param>
+        /// <returns></returns>
+        ListPartsResponse ListMultipartUploads(string BucketName, string Key, string UploadId)
+        {
+            // List parts for current upload
+            ListPartsRequest listPartRequest = new ListPartsRequest
+            {
+                BucketName = BucketName,
+                Key = Key,
+                UploadId = UploadId
+            };
+            return _client.ListParts(listPartRequest);
+        }
+
+
+        /// <summary>
+        /// Complete Multipart Uploading
+        /// </summary>
+        /// <param name="etags"></param>
+        private void _completeMultipartUpload(List<PartETag> etags)
+        {
+            CompleteMultipartUploadRequest req = new CompleteMultipartUploadRequest()
+            {
+                BucketName = _cer.BucketName,
+                Key = _key,
+                UploadId = _uploadId,
+                PartETags = etags
+            };
+
+            CompleteMultipartUploadResponse res = _client.CompleteMultipartUpload(req);
+            Console.WriteLine("Complete => {0}", res.ETag);
+        }
+
+        /// <summary>
+        /// S3FileUploader
+        /// </summary>
+        class S3Uploader
+        {
+            private UploadPartRequest uploadRequest;
+            private PutObjectRequest putrequest;
+            private ENC _uploaderENC;
+            private int _offset = 0;
+            private PartETag partETag;
+            private IUploadObject _iobj;
+            /*bool _isenc = false;
+            string _filePath = string.Empty;*/
+            Thread _th = null;
+            internal int _isstate = 0;
+            internal int PercentageDone { private set; get; }
+            UpdateProgress _update;
+
+            /*/// <summary>
+            /// Constructor of class
+            /// </summary>
+            /// <param name="uploadRequest"></param>
+            /// <param name="_update"></param>
+            /// <param name="_uploaderENC"></param>
+            /// <param name="_offset"></param>
+            /// <param name="_isenc"></param>
+            /// <param name="_filePath"></param>
+            public S3Uploader(UploadPartRequest uploadRequest, UpdateProgress _update, ENC _uploaderENC, int _offset, bool _isenc, string _filePath)
+            {
+                this.uploadRequest = uploadRequest;
+                this._update = _update;
+                this._uploaderENC = _uploaderENC;
+                this._offset = _offset;
+                this._isenc = _isenc;
+                this._filePath = _filePath;
+                this.uploadRequest.StreamTransferProgress += new EventHandler<Amazon.Runtime.StreamTransferProgressArgs>(_handleUploadPartRequestProgress);
+            }
+            /// <summary>
+            /// Constructor of class
+            /// </summary>
+            /// <param name="putrequest"></param>
+            /// <param name="_update"></param>
+            /// <param name="_uploaderENC"></param>
+            /// <param name="_offset"></param>
+            /// <param name="_isenc"></param>
+            /// <param name="_filePath"></param>
+            public S3Uploader(PutObjectRequest putrequest, UpdateProgress _update, ENC _uploaderENC, int _offset, bool _isenc, string _filePath)
+            {
+                this.putrequest = putrequest;
+                this._update = _update;
+                this._uploaderENC = _uploaderENC;
+                this._offset = _offset;
+                this._isenc = _isenc;
+                this._filePath = _filePath;
+                this.putrequest .StreamTransferProgress +=new EventHandler<Amazon.Runtime.StreamTransferProgressArgs>(_handleUploadPartRequestProgress);
+            }*/
+
+            /// <summary>
+            /// Constructor of class
+            /// </summary>
+            /// <param name="uploadRequest"></param>
+            /// <param name="_update"></param>
+            /// <param name="_uploaderENC"></param>
+            /// <param name="_offset"></param>
+            /// <param name="_iobj"></param>
+            public S3Uploader(UploadPartRequest uploadRequest, UpdateProgress _update, ENC _uploaderENC, int _offset,IUploadObject _iobj)
+            {
+                this.uploadRequest = uploadRequest;
+                this._update = _update;
+                this._uploaderENC = _uploaderENC;
+                this._offset = _offset;
+                this._iobj = _iobj;
+                this.uploadRequest.StreamTransferProgress += new EventHandler<Amazon.Runtime.StreamTransferProgressArgs>(_handleUploadPartRequestProgress);
+            }
+
+            /// <summary>
+            /// Constructor of class
+            /// </summary>
+            /// <param name="putrequest"></param>
+            /// <param name="_update"></param>
+            /// <param name="_uploaderENC"></param>
+            /// <param name="_offset"></param>
+            /// <param name="_iobj"></param>
+            public S3Uploader(PutObjectRequest putrequest, UpdateProgress _update, ENC _uploaderENC, int _offset, IUploadObject _iobj)
+            {
+                this.putrequest = putrequest;
+                this._update = _update;
+                this._uploaderENC = _uploaderENC;
+                this._offset = _offset;
+                this._iobj = _iobj;
+                this.putrequest.StreamTransferProgress += new EventHandler<Amazon.Runtime.StreamTransferProgressArgs>(_handleUploadPartRequestProgress);
+            }
+
+            /// <summary>
+            /// Raised Uploading Progress
+            /// </summary>
+            /// <param name="sender"></param>
+            /// <param name="args"></param>
+            private void _handleUploadPartRequestProgress(object sender, Amazon.Runtime.StreamTransferProgressArgs args)
+            {
+                PercentageDone = args.PercentDone;
+                _update.Invoke();
+            }
+
+            /// <summary>
+            /// Upload object to AmazonS3 server asynchronously
+            /// </summary>
+            void RunActionAsync()
+            {
+                try
+                {
+                    var _instream = new FileStream(_iobj.Filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    if (putrequest != null)
+                    {
+                        putrequest.InputStream = new MemoryStream();
+                        /* If the file is not part then 0 else RangeFrom */ 
+                        _instream.Seek(_iobj.RangeFrom, SeekOrigin.Begin);
+                        UploadBytes(_instream, putrequest.InputStream, _iobj.RangeTo==0? _instream.Length : _iobj.RangeTo); // _instream.Length //
+                        _instream.Close();
+                        _instream.Dispose();
+                    _repeat:
+                        try
+                        {
+                            while (_paused == true)
+                                Thread.Sleep(1000);
+                            if (_client == null)
+                                return;
+                            var res = _client.PutObject(putrequest);
+                            this.putrequest.StreamTransferProgress -= new EventHandler<Amazon.Runtime.StreamTransferProgressArgs>(_handleUploadPartRequestProgress);
+                            partETag = new PartETag(1, res.ETag);
+                            putrequest.InputStream.Close();
+                            putrequest.InputStream.Dispose();
+                            putrequest.InputStream = null;
+                            res = null;
+                            _th = null;
+                            putrequest = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error(ex);
+                            putrequest.InputStream.Seek(0, SeekOrigin.Begin);
+                            goto _repeat;
+                        }
+                    }
+                    else
+                    {
+                        uploadRequest.InputStream = new MemoryStream();
+                        _instream.Seek(uploadRequest.FilePosition, SeekOrigin.Begin);
+                        UploadBytes(_instream, uploadRequest.InputStream, uploadRequest.PartSize);
+                        _instream.Close();
+                        _instream.Dispose();
+                        _repeat:
+                        try
+                        {
+                            while (_paused == true)
+                                Thread.Sleep(1000);
+
+                            if (_client == null)
+                                return;
+
+                            var res = _client.UploadPart(uploadRequest);
+                            if (res == null)
+                                Logger.Error("Uploader response is Empty!!!");
+
+                            if (string.IsNullOrEmpty(res.ETag))
+                                Logger.Error("Uploaded Part ETag is Empty!!!");
+
+                            this.uploadRequest.StreamTransferProgress -= new EventHandler<Amazon.Runtime.StreamTransferProgressArgs>(_handleUploadPartRequestProgress);
+                            partETag = new PartETag(uploadRequest.PartNumber, res.ETag);
+                            uploadRequest.InputStream.Close();
+                            uploadRequest.InputStream.Dispose();
+                            uploadRequest.InputStream = null;
+                            uploadRequest = null;
+                            res = null;
+                            _th = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Thread.Sleep(1000);
+                            Logger.Error(ex);
+                            uploadRequest.InputStream.Seek(0, SeekOrigin.Begin);
+                            goto _repeat;
+                        }
+                    }
+                    _isstate = 2;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex);
+                }
+            }
+
+            /// <summary>
+            ///  Uploading bytes to AmazonS3
+            /// </summary>
+            /// <param name="_InStream"></param>
+            /// <param name="_Outstream"></param>
+            /// <param name="_len"></param>
+            private void UploadBytes(Stream _InStream, Stream _Outstream, long _len)
+            {
+                int _coffet = _offset;
+                byte[] buffer = new byte[_coffet];
+                long _rec = 0;
+                
+                do
+                {
+
+                    // read bytes from input stream
+                    if ((_len - _rec) <= _coffet)
+                    {
+                        _coffet = Convert.ToInt32(_len - _rec);
+
+                        if (_coffet > _offset)
+                            Logger.Warning("------------------Offset value is high---------------------->" + _coffet);
+                    }
+
+                    int bytesRead = _InStream.Read(buffer, 0, _coffet);
+
+                    
+                    if (bytesRead == 0) break;
+                    if(_iobj.IsEnc)
+                       buffer = _uploaderENC.Invoke(buffer, bytesRead);
+
+                    _rec += bytesRead;
+                    if (_rec > _len)
+                        Logger.Warning("----------------Upload more data------------------------>" + _len +"====="+ _rec);
+                    if(buffer.Length!= bytesRead)
+                        Logger.Warning("-----------------------Encryption Data Lenth is high----------------->" + _len + "=====" + _rec);
+                    // write bytes to output stream
+                    _Outstream.Write(buffer, 0, bytesRead);
+                    buffer = new byte[_coffet];
+                } while (_len != _rec);
+                _Outstream.Seek(0, SeekOrigin.Begin);
+            }
+
+            /// <summary>
+            /// Get Uploaded PartTag
+            /// </summary>
+            /// <returns></returns>
+            internal PartETag getPartETag()
+            {
+                return partETag;
+            }
+
+            /// <summary>
+            /// Start Uploading
+            /// </summary>
+            public void upload()
+            {
+                _isstate = 1;
+                _th = new Thread(RunActionAsync);
+                _th.Start();
+            }
+
+            /// <summary>
+            /// Join thread
+            /// </summary>
+            internal void Join()
+            {
+                if (_th != null)
+                    _th.Join();
+            }
+
+            /// <summary>
+            /// Suspend Upload
+            /// </summary>
+            internal void Suspend()
+            {
+                if (_th != null)
+#pragma warning disable CS0618 // Type or member is obsolete
+                    _th.Suspend();
+#pragma warning restore CS0618 // Type or member is obsolete
+            }
+
+            /// <summary>
+            /// Resume upload
+            /// </summary>
+            internal void Resume()
+            {
+                if (_th != null)
+#pragma warning disable CS0618 // Type or member is obsolete
+                    _th.Resume();
+#pragma warning restore CS0618 // Type or member is obsolete
+            }
+        }
+    }
+
+ /// <summary>
+    /// Uploader
+    /// </summary>
+    internal class NHSUploader : IUploader, IDisposable
+    {
+        #region IDisposable Implementation
+        bool _isdispose = false;
+        /// <summary>
+        /// Disposed object
+        /// </summary>
+        /// <param name="_isdispose"></param>
+        protected virtual void Dispose(bool _isdispose)
+        {
+            if (!this._isdispose && _isdispose)
+            {
+                IsCompleted = true;
+                this._isdispose = true;
+                if (_uploader != null)
+                {
+                    _uploader.UploaderProgressEvent -= _uploader_UploaderProgressEvent;
+                    _uploader.UploaderReadyEvent -= _uploader_UploaderReadyEvent;
+                    _uploader.UploaderENC -= _uploader_UploaderENC;
+                    _uploader.Dispose();
+                }
+                _uploadObjects = null;
+            }
+        }
+
+        /// <summary>
+        /// Dispose 
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        #endregion
+
+        private List<UploadObject> _uploadObjects;
+        private UploaderModel _uploadtype = UploaderModel.NONE;
+        private long _totalObjectSize = 0;
+        private long _curObjectSize = 0;
+        private long _sentObjectSize = 0;
+        private IBaseUploader _uploader = null;
+        //internal readonly ChilkatCrypt2Class _streamingdec = null;
+        public object Handler { set; get; }
+        int _percentage = 0;
+        public bool IsCompleted = false;
+        private byte[] IV = null, Key = null;
+        public int Percentage
+        {
+            set
+            {
+                if (_percentage != value)
+                {
+                    _percentage = value;
+                    if (UploaderProgressEvent != null)
+                        UploaderProgressEvent.Invoke(this, new ProgressChangedEventArgs(value, "Uploading"));
+                    // fire event here
+                }
+            }
+            get { return _percentage; }
+        }
+
+
+        WebCredential _webcer, _webProxycer;
+        AWSCredential _cer;
+        public event AsyncCompletedEventHandler UploaderCompleted;
+        public event ProgressChangedEventHandler UploaderProgressEvent;
+
+        public bool IsAuthorized { private set; get; }
+        internal NDRMDetails _ndrm;
+        readonly object _icryflock = null;
+        /// <summary>
+        /// Constructor of class
+        /// </summary>
+        /// <param name="_ndrm"></param>
+        public NHSUploader(NDRMDetails _ndrm)
+        {
+            this.IsAuthorized = true;
+            this._ndrm = _ndrm;
+            if (_ndrm.offset > 0)
+                _icryflock = new object();
+        }
+
+        /// <summary>
+        /// Constructor of class
+        /// </summary>
+        public NHSUploader()
+        {
+            this.IsAuthorized = true;
+        }
+
+        /// <summary>
+        /// Constructor of class
+        /// </summary>
+        /// <param name="_ndrm"></param>
+        /// <param name="_iv"></param>
+        /// <param name="_key"></param>
+        public NHSUploader(NDRMDetails _ndrm, string _iv, string _key) :
+            this(_ndrm)
+        {
+            this.IsAuthorized = true;
+            this.IV = Encoding.ASCII.GetBytes(_iv); //ASCIIEncoding.Unicode.GetBytes(_iv); 
+            this.Key = Encoding.ASCII.GetBytes(_key);//ASCIIEncoding.Unicode.GetBytes(_key);
+        }
+
+        /// <summary>
+        /// Start HTTP Uploading
+        /// </summary>
+        /// <param name="_webcer"></param>
+        /// <param name="_webProxycer"></param>
+        /// <param name="_uploadObjects"></param>
+        internal void StartHTTPUploader(WebCredential _webcer, WebCredential _webProxycer, List<UploadObject> _uploadObjects)
+        {
+            _uploadtype = UploaderModel.HTTP;
+            if (string.IsNullOrEmpty(_webcer.uri))
+                throw new Exception(Resources.nu001);
+
+            if (_uploadObjects == null)
+                throw new Exception(Resources.nu002);
+
+            if (_uploadObjects.Count == 0)
+                throw new Exception(Resources.nu002);
+
+            this._webcer = _webcer;
+            this._webProxycer = _webProxycer;
+            this._uploadObjects = _uploadObjects;
+            _totalObjectSize = this._uploadObjects.Sum(c => c.ObjectSize);
+            _start();
+        }
+
+        /// <summary>
+        /// Start FTP Uploading
+        /// </summary>
+        /// <param name="_webcer"></param>
+        /// <param name="_webProxycer"></param>
+        /// <param name="_uploadObjects"></param>
+        internal void StartFTPUploader(WebCredential _webcer, WebCredential _webProxycer, List<UploadObject> _uploadObjects)
+        {
+            _uploadtype = UploaderModel.FTP;
+
+            if (string.IsNullOrEmpty(_webcer.uri))
+                throw new Exception(Resources.nu001);
+
+            if (_uploadObjects == null)
+                throw new Exception(Resources.nu002);
+
+            if (_uploadObjects.Count == 0)
+                throw new Exception(Resources.nu002);
+
+            this._webcer = _webcer;
+            this._webProxycer = _webProxycer;
+            this._uploadObjects = _uploadObjects;
+            _totalObjectSize = this._uploadObjects.Sum(c => c.ObjectSize);
+            _start();
+        }
+
+        /// <summary>
+        /// Start AmazonS3 Uploading
+        /// </summary>
+        /// <param name="_cert"></param>
+        /// <param name="_uploadObjects"></param>
+        internal void StartS3Uploader(AWSCredential _cert, List<UploadObject> _uploadObjects)
+        {
+            _uploadtype = UploaderModel.AWS_S3;
+
+            if (string.IsNullOrEmpty(_cert.BucketName) || string.IsNullOrEmpty(_cert.AccessKey) || string.IsNullOrEmpty(_cert.SecretKey))
+                throw new Exception(Resources.nu003);
+
+            if (_uploadObjects == null)
+                throw new Exception(Resources.nu002);
+
+            if (_uploadObjects.Count == 0)
+                throw new Exception(Resources.nu002);
+
+            this._cer = _cert;
+            this._uploadObjects = _uploadObjects;
+            _totalObjectSize = this._uploadObjects.Sum(c => c.ObjectSize);
+            _start();
+        }
+
+
+
+        /// <summary>
+        /// Event for Uploader is ready
+        /// </summary>
+        /// <param name="Key"></param>
+        /// <param name="e"></param>
+        void _uploader_UploaderReadyEvent(string Key, Exception e)
+        {
+            _sentObjectSize = _uploadObjects.Sum(c => c.IsUploaded ? c.ObjectSize : 0);
+            _uploader.UploaderProgressEvent -= _uploader_UploaderProgressEvent;
+            _uploader.UploaderReadyEvent -= _uploader_UploaderReadyEvent;
+            _uploader.UploaderENC -= _uploader_UploaderENC;
+
+            if (e is Amazon.S3.AmazonS3Exception)
+            {
+                Amazon.S3.AmazonS3Exception ex = e as Amazon.S3.AmazonS3Exception;
+                this.IsAuthorized = (ex.StatusCode != System.Net.HttpStatusCode.Unauthorized);
+            }
+            _start();
+        }
+
+        /// <summary>
+        /// Uploader Percentage
+        /// </summary>
+        /// <param name="Key"></param>
+        /// <param name="PercentDone"></param>
+        void _uploader_UploaderProgressEvent(string Key, int PercentDone)
+        {
+            Percentage = Convert.ToInt32(((_sentObjectSize + ((_curObjectSize * PercentDone) / 100.0)) * 100.0) / _totalObjectSize);
+        }
+
+        /// <summary>
+        /// CTR Content Encryption
+        /// </summary>
+        /// <param name="_byte"></param>
+        /// <param name="_len"></param>
+        /// <returns></returns>
+        byte[] _uploader_UploaderENC(byte[] _byte, int _len)
+        {
+            if (this.IV != null)
+                lock (_icryflock)
+                {
+                    byte[] _bres = new byte[_len];
+                    if (!Helpers.NativeMethods.EncryptBuffer(_byte, _bres, _len, Key, Key.Length, IV))
+                        throw new Exception(Resources.nu004);
+                    return _bres;
+                }
+            return _byte;
+        }
+
+
+        /// <summary>
+        /// Abort Uploading
+        /// </summary>
+        public void Abort()
+        {
+            if (_uploader != null)
+                _uploader.Pause();
+        }
+
+        /// <summary>
+        /// Resume Uploading
+        /// </summary>
+        /// <returns></returns>
+        public bool Resume()
+        {
+            if (_uploader != null)
+            {
+                if (_ndrm.IsSuccess)
+                    _start();
+                else
+                    _uploader.Resume();
+                return true;
+            }
+            return false;
+        }
+
+
+
+        /// <summary>
+        /// Start Uploading
+        /// </summary>
+        void _start()
+        {
+            var _cur = _uploadObjects.FirstOrDefault(c => c.IsUploaded == false);
+            if (_cur == null || IsAuthorized == false)
+            {
+                if (IsAuthorized == false)
+                {
+                    if (UploaderCompleted != null)
+                        UploaderCompleted.Invoke(this, new AsyncCompletedEventArgs(null, false, _ndrm));
+                }
+                else
+                {
+                    _ndrm.IsSuccess = true;
+                    Logger.Info("Complete==>", "Upload");
+                    // wirte NDRM gen
+                    if (UploaderCompleted != null)
+                        UploaderCompleted.Invoke(this, new AsyncCompletedEventArgs(null, false, _ndrm));
+                    IsCompleted = true;
+                    // upload completed
+                }
+                return;
+            }
+
+            if (_isdispose)
+                return;
+            _curObjectSize = _cur.ObjectSize;
+            Thread th = new Thread(delegate ()
+            {
+                if (_uploader != null)
+                    while (!_uploader.Stopped)
+                    {
+                        Thread.Sleep(100);
+                        if (_isdispose)
+                            return;
+                    }
+
+                switch (_uploadtype)
+                {
+                    case UploaderModel.FTP:
+                        _uploader = new FTPUploader(_cur, _webcer, _webProxycer, false, _uploadObjects.Sum(c => (c.IsUploaded ? 0 : 1)) > 2, _ndrm.offset);
+                        break;
+                    case UploaderModel.AWS_S3:
+                        _uploader = new S3MultipartUploader(_cur, _cer, _ndrm.offset);
+                        break;
+                    default:
+                        _uploader = new HTTPUploader(_cur, _webcer, _webProxycer, _ndrm.offset);
+                        break;
+                }
+                _uploader.UploaderProgressEvent += _uploader_UploaderProgressEvent;
+                _uploader.UploaderReadyEvent += _uploader_UploaderReadyEvent;
+                _uploader.UploaderENC += _uploader_UploaderENC;
+                _uploader.Start();
+            });
+            th.Start();
+        }
+    }
+
+
+
+
+
+
+
+
+
